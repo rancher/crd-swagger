@@ -5,6 +5,10 @@ The generated swagger is the same document that you would get from the [openapiv
 ## Installation
 `go install github.com/kevinjoiner/crd-swagger`
 
+### Requirements
+- golang
+- docker
+
 ## Usage
 ```
 Generates a Swagger (openapiv2) document for Custom Resource Definitions (CRDs) installed and accessed through kube-apiserver.
@@ -21,5 +25,5 @@ Flags:
   -r, --recurse               if files is a directory recursively search for all CRDs
   ```
 ## Example
-Generate swagger.json from a local Yaml file with readable new lines and indents
-` crd-swagger -o ./swagger.json -p -f ./crds.yaml`
+Generate swagger.json from a local Yaml file with readable new lines and indents<br>
+`crd-swagger -o ./swagger.json -p -f ./crds.yaml`
