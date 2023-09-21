@@ -3,21 +3,12 @@ package main
 import (
 	"log"
 
-	"github.com/KevinJoiner/crd-swagger/cmd"
-	"go.uber.org/zap"
+	"github.com/KevinJoiner/crd-swagger/pkg/cmd"
 )
 
 func main() {
-	logger, err := zap.NewProduction()
-	if err != nil {
-		log.Fatal(err)
-	}
-	_ = zap.ReplaceGlobals(logger)
 	rootCmd := cmd.NewRootCommand()
-	err = rootCmd.Execute()
-	if err != nil {
-		_ = logger.Sync()
+	if err := rootCmd.Execute(); err != nil {
 		log.Fatal(err)
 	}
-	_ = logger.Sync()
 }

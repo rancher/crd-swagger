@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,7 +15,7 @@ import (
 	"k8s.io/kube-openapi/pkg/validation/spec"
 )
 
-func gkFromPath(path spec.PathItem) []v1.GroupKind {
+func groupKindsFromPath(path spec.PathItem) []v1.GroupKind {
 	gks := map[v1.GroupKind]bool{}
 
 	err := addGKFromOp(path.Get, gks)
@@ -142,10 +141,6 @@ func crdFromReader(reader io.Reader, allCRDs map[string]*apiextv1.CustomResource
 		if _, ok := allCRDs[crdObj.Name]; ok {
 			return fmt.Errorf("%w for '%s", errDuplicate, crdObj.Name)
 		}
-
-		if _, ok := allCRDs[crdObj.Name]; ok {
-			return fmt.Errorf("%w for '%s", errDuplicate, crdObj.Name)
-		}
 		allCRDs[crdObj.Name] = crdObj
 	}
 	return nil
@@ -157,10 +152,7 @@ func crdsFromURL(url string, allCRDs map[string]*apiextv1.CustomResourceDefiniti
 		return fmt.Errorf("failed to get request YAML: %w", err)
 	}
 	defer resp.Body.Close()
-	bdy, _ := io.ReadAll(resp.Body)
-	os.WriteFile("cert.yaml", bdy, 0666)
-	// fmt.Println(string(bdy))s
-	err = crdFromReader(bytes.NewBuffer(bdy), allCRDs)
+	err = crdFromReader(resp.Body, allCRDs)
 	if err != nil {
 		return fmt.Errorf("failed to convert response: %w", err)
 	}
