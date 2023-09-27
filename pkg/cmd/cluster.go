@@ -26,7 +26,10 @@ import (
 	"k8s.io/kube-openapi/pkg/validation/spec"
 )
 
-const defaultK3sPort = "6443"
+const (
+	defaultK3sPort = "6443"
+	k3sImage       = "rancher/k3s:v1.27.5-k3s1"
+)
 
 type dockerCluster struct {
 	containerID string
@@ -87,7 +90,7 @@ func (d *dockerCluster) stop(ctx context.Context) error {
 func (d *dockerCluster) pullK3sImage(ctx context.Context) error {
 	timeoutCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
-	reader, err := d.cli.ImagePull(timeoutCtx, "rancher/k3s:v1.27.5-k3s1", types.ImagePullOptions{})
+	reader, err := d.cli.ImagePull(timeoutCtx, k3sImage, types.ImagePullOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to pull image: %w", err)
 	}
@@ -107,7 +110,7 @@ func (d *dockerCluster) createContainer(ctx context.Context) error {
 	defer cancel()
 	resp, err := d.cli.ContainerCreate(timeoutCtx,
 		&container.Config{
-			Image:      "rancher/k3s:v1.27.5-k3s1",
+			Image:      k3sImage,
 			Entrypoint: []string{"/bin/k3s", "server"},
 			ExposedPorts: nat.PortSet{
 				defaultK3sPort: struct{}{},

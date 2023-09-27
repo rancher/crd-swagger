@@ -1,3 +1,4 @@
+// Package cmd is the central entrypoint for the application that is used to setup and execute the cobra command.
 package cmd
 
 import (
@@ -78,8 +79,8 @@ func setupLogger() error {
 }
 
 func addFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVarP(&cmdFlags.crdSource, "files", "f", "", "location to find input CRD file/files, either a file path or a remote URL")
-	cmd.Flags().BoolVarP(&cmdFlags.recurse, "recurse", "r", false, "if files is a directory recursively search for all CRDs")
+	cmd.Flags().StringVarP(&cmdFlags.crdSource, "files", "f", "", "location to find input CRD file/files, either a file path or a remote file URL")
+	cmd.Flags().BoolVarP(&cmdFlags.recurse, "recurse", "r", false, "if files is a local directory recursively search for all CRDs")
 	cmd.Flags().StringVarP(&cmdFlags.outputFile, "output-file", "o", "", "location to output the generate swagger doc (if unset stdout is used)")
 	cmd.Flags().BoolVarP(&cmdFlags.prettyPrint, "pretty-print", "p", false, "print the output json with formatted with newlines and indentations")
 	cmd.Flags().StringVar(&cmdFlags.k3sPort, "cluster-port", defaultK3sPort, "port to bind kubeapi-server to on the host machine")
@@ -99,6 +100,7 @@ func run() (err error) {
 	}
 
 	// convert the map of crds to a map of GroupKind and a list of crds to install
+	// the boolean value is used later on to identify if the desired GK was found in the path.
 	desiredGroupKinds := make(map[v1.GroupKind]bool, len(crdMap))
 	crdsToInstall := make([]*apiextv1.CustomResourceDefinition, 0, len(crdMap))
 	for _, crd := range crdMap {
@@ -107,7 +109,8 @@ func run() (err error) {
 			Group: crd.Spec.Group,
 			Kind:  crd.Spec.Names.Kind,
 		}
-		desiredGroupKinds[gk] = true
+		// add the CRDs GK to the map and initialize it to notFound aka false
+		desiredGroupKinds[gk] = false
 	}
 
 	zap.S().Info("Starting cluster in a docker container.")
@@ -164,18 +167,20 @@ func getDesiredPaths(swagger *spec.Swagger, desiredGroupKinds map[v1.GroupKind]b
 		return nil, fmt.Errorf("cluster's swagger doc has no paths set")
 	}
 	var keepPaths []string
-
 	for pathName, pathItem := range swagger.Paths.Paths {
 		gks := groupKindsFromPath(pathItem)
 		for i := range gks {
-			if desiredGroupKinds[gks[i]] {
+			if _, ok := desiredGroupKinds[gks[i]]; ok {
 				keepPaths = append(keepPaths, pathName)
+				desiredGroupKinds[gks[i]] = true // set the GK as found
 				break
 			}
 		}
 	}
-	if keepPaths == nil {
-		return nil, fmt.Errorf("failed to find any paths for CRDs.")
+	for gk, foundPath := range desiredGroupKinds {
+		if !foundPath {
+			return nil, fmt.Errorf("failed to find path for GroupKind %s", gk.String())
+		}
 	}
 	return keepPaths, nil
 }

@@ -17,41 +17,17 @@ import (
 
 func groupKindsFromPath(path spec.PathItem) []v1.GroupKind {
 	gks := map[v1.GroupKind]bool{}
-
-	err := addGKFromOp(path.Get, gks)
-	if err != nil {
-		zap.S().Infof("Get: %v", err)
+	ops := map[string]*spec.Operation{
+		"GET": path.Get, "PUT": path.Put, "POST": path.Post, "DELETE": path.Delete,
+		"OPTIONS": path.Options, "HEAD": path.Head, "PATCH": path.Patch,
+	}
+	for opName, op := range ops {
+		err := addGKFromOp(op, gks)
+		if err != nil {
+			zap.S().Infof("Failed to get GroupKind for Path %s.%s : %v", path, opName, err)
+		}
 	}
 
-	err = addGKFromOp(path.Put, gks)
-	if err != nil {
-		zap.S().Infof("Put: %v", err)
-	}
-
-	err = addGKFromOp(path.Post, gks)
-	if err != nil {
-		zap.S().Infof("Post: %v", err)
-	}
-
-	err = addGKFromOp(path.Delete, gks)
-	if err != nil {
-		zap.S().Infof("Delete: %v", err)
-	}
-
-	err = addGKFromOp(path.Options, gks)
-	if err != nil {
-		zap.S().Infof("Options: %v", err)
-	}
-
-	err = addGKFromOp(path.Head, gks)
-	if err != nil {
-		zap.S().Infof("Head: %v", err)
-	}
-
-	err = addGKFromOp(path.Patch, gks)
-	if err != nil {
-		zap.S().Infof("Patch: %v", err)
-	}
 	retSlice := make([]v1.GroupKind, 0, len(gks))
 	for gk := range gks {
 		retSlice = append(retSlice, gk)
@@ -90,9 +66,7 @@ func crdsFromInput(path string) (map[string]*apiextv1.CustomResourceDefinition, 
 }
 
 // crdsFromDir recursively traverses the embedded yaml directory and find all CRD yamls.
-func crdsFromDir(dirName string,
-	allCRDs map[string]*apiextv1.CustomResourceDefinition) error {
-
+func crdsFromDir(dirName string, allCRDs map[string]*apiextv1.CustomResourceDefinition) error {
 	// read all entries in the directory
 	crdFiles, err := os.ReadDir(dirName)
 	if err != nil {
@@ -101,15 +75,21 @@ func crdsFromDir(dirName string,
 
 	for _, dirEntry := range crdFiles {
 		fullPath := filepath.Join(dirName, dirEntry.Name())
-		if dirEntry.IsDir() && cmdFlags.recurse {
-			// if the entry is the dir recurse into that folder to get all crds
-			err := crdsFromDir(fullPath, allCRDs)
+		if !dirEntry.IsDir() {
+			err := crdFromFile(fullPath, allCRDs)
 			if err != nil {
 				return err
 			}
 			continue
 		}
-		crdFromFile(fullPath, allCRDs)
+		if !cmdFlags.recurse {
+			continue
+		}
+		// if the entry is the dir recurse into that folder to get all crds
+		err := crdsFromDir(fullPath, allCRDs)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
