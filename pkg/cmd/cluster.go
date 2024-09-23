@@ -110,7 +110,7 @@ func (d *dockerCluster) createContainer(ctx context.Context) error {
 	defer cancel()
 	resp, err := d.cli.ContainerCreate(timeoutCtx,
 		&container.Config{
-			Image:      ,
+			Image:      cmdFlags.k3sImage,
 			Entrypoint: []string{"/bin/k3s", "server"},
 			ExposedPorts: nat.PortSet{
 				defaultK3sPort: struct{}{},
