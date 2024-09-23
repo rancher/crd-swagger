@@ -27,8 +27,8 @@ import (
 )
 
 const (
-	defaultK3sPort = "6443"
-	k3sImage       = "rancher/k3s:v1.27.5-k3s1"
+	defaultK3sPort  = "6443"
+	defaultK3sImage = "rancher/k3s:v1.27.5-k3s1"
 )
 
 type dockerCluster struct {
@@ -90,7 +90,7 @@ func (d *dockerCluster) stop(ctx context.Context) error {
 func (d *dockerCluster) pullK3sImage(ctx context.Context) error {
 	timeoutCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
-	reader, err := d.cli.ImagePull(timeoutCtx, k3sImage, types.ImagePullOptions{})
+	reader, err := d.cli.ImagePull(timeoutCtx, cmdFlags.k3sImage, types.ImagePullOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to pull image: %w", err)
 	}
@@ -110,7 +110,7 @@ func (d *dockerCluster) createContainer(ctx context.Context) error {
 	defer cancel()
 	resp, err := d.cli.ContainerCreate(timeoutCtx,
 		&container.Config{
-			Image:      k3sImage,
+			Image:      ,
 			Entrypoint: []string{"/bin/k3s", "server"},
 			ExposedPorts: nat.PortSet{
 				defaultK3sPort: struct{}{},

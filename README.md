@@ -12,7 +12,7 @@ The application performs the following steps to accomplish this
 
 ## Installation
 ``` bash
-go install github.com/kevinjoiner/crd-swagger
+go install github.com/KevinJoiner/crd-swagger
 ```
 
 ### Requirements
@@ -28,6 +28,7 @@ Usage:
 
 Flags:
       --cluster-port string   port to bind kubeapi-server to on the host machine (default "6443")
+      --cluster-image string  image to deploy k3s (default "rancher/k3s:v1.27.5-k3s1")
   -f, --files string          location to find input CRD file/files, either a file path or a remote URL
   -h, --help                  help for crd-swagger
   -o, --output-file string    location to output the generate swagger doc (if unset stdout is used)

@@ -35,6 +35,7 @@ type flagVar struct {
 	prettyPrint bool
 	recurse     bool
 	silent      bool
+	k3sImage    string
 }
 
 var (
@@ -85,6 +86,7 @@ func addFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVarP(&cmdFlags.prettyPrint, "pretty-print", "p", false, "print the output json with formatted with newlines and indentations")
 	cmd.Flags().StringVar(&cmdFlags.k3sPort, "cluster-port", defaultK3sPort, "port to bind kubeapi-server to on the host machine")
 	cmd.Flags().BoolVar(&cmdFlags.silent, "silent", false, "do not print any log messages")
+	cmd.Flags().StringVar(&cmdFlags.k3sImage, "cluster-image", defaultK3sImage, "image to deploy k3s")
 	_ = cmd.MarkFlagRequired("files")
 }
 
