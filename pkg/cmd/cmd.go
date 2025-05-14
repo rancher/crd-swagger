@@ -1,46 +1,29 @@
-// Package cmd is the central entrypoint for the application that is used to setup and execute the cobra command.
 package cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
-	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/KevinJoiner/crd-swagger/pkg/aggregator"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	apiextv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/kube-openapi/pkg/aggregator"
-	"k8s.io/kube-openapi/pkg/validation/spec"
 )
 
-const (
-	kubePath       = "/etc/rancher/k3s/k3s.yaml"
-	crdKind        = "CustomResourceDefinition"
-	requestTimeout = time.Second * 5
-	waitInterval   = time.Millisecond * 500
-	waitTime       = time.Second * 15
-	syncTime       = time.Second * 2
-	extensionGVK   = "x-kubernetes-group-version-kind"
-)
+type commandFlags struct {
+	resourcesFile string
+	outputFile    string
+	prettyPrint   bool
 
-type flagVar struct {
-	outputFile  string
-	crdSource   string
-	k3sPort     string
-	prettyPrint bool
-	recurse     bool
-	silent      bool
+	rancherVersion string
+	hostPortHTTP   string
+	hostPortHTTPS  string
+
+	rancherDevImage string
 }
 
-var (
-	cmdFlags     flagVar
-	errDuplicate = fmt.Errorf("duplicate CRD")
-)
+var cmdFlags commandFlags
 
 // NewRootCommand returns the root crd-swagger command.
 func NewRootCommand() *cobra.Command {
@@ -62,11 +45,6 @@ func NewRootCommand() *cobra.Command {
 
 func setupLogger() error {
 	atom := zap.NewAtomicLevel()
-	if cmdFlags.silent {
-		atom.SetLevel(zapcore.FatalLevel)
-		// need to set logrus level for wrangler logging
-		logrus.SetLevel(logrus.FatalLevel)
-	}
 	encoderCfg := zap.NewProductionEncoderConfig()
 	encoderCfg.EncodeTime = zapcore.ISO8601TimeEncoder
 	logger := zap.New(zapcore.NewCore(
@@ -79,137 +57,108 @@ func setupLogger() error {
 }
 
 func addFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVarP(&cmdFlags.crdSource, "files", "f", "", "location to find input CRD file/files, either a file path or a remote file URL")
-	cmd.Flags().BoolVarP(&cmdFlags.recurse, "recurse", "r", false, "if files is a local directory recursively search for all CRDs")
-	cmd.Flags().StringVarP(&cmdFlags.outputFile, "output-file", "o", "", "location to output the generate swagger doc (if unset stdout is used)")
-	cmd.Flags().BoolVarP(&cmdFlags.prettyPrint, "pretty-print", "p", false, "print the output json with formatted with newlines and indentations")
-	cmd.Flags().StringVar(&cmdFlags.k3sPort, "cluster-port", defaultK3sPort, "port to bind kubeapi-server to on the host machine")
-	cmd.Flags().BoolVar(&cmdFlags.silent, "silent", false, "do not print any log messages")
-	_ = cmd.MarkFlagRequired("files")
+	cmd.Flags().StringVarP(&cmdFlags.resourcesFile, "resources-file", "f", "", "Path to a file containing Kind.Group resources (e.g., RoleTemplate.management.cattle.io), one per line")
+	cmd.Flags().StringVarP(&cmdFlags.outputFile, "output-file", "o", "", "Output file for the generated OpenAPI (Swagger) document (default: stdout)")
+	cmd.Flags().BoolVarP(&cmdFlags.prettyPrint, "pretty-print", "j", false, "Pretty-print the output JSON with indentation")
+
+	cmd.Flags().StringVarP(&cmdFlags.rancherVersion, "rancher-version", "v", "", "Rancher Docker image version (e.g., v2.8.3) default: latest)")
+	cmd.Flags().StringVarP(&cmdFlags.rancherDevImage, "rancher-dev-image", "i", "", "Custom/Dev Rancher Docker image (e.g., exampleRepository/rancher:dev)")
+
+	cmd.Flags().StringVarP(&cmdFlags.hostPortHTTP, "http-port", "p", defaultHostPort, "Host port for Rancher HTTP traffic (e.g., 80, 8080)")
+	cmd.Flags().StringVarP(&cmdFlags.hostPortHTTPS, "https-port", "t", defaultHostPortHTTPS, "Host port for Rancher HTTPS traffic (e.g. tls port: 443, 8443)")
+
+	if err := cmd.MarkFlagRequired("resources-file"); err != nil {
+		panic(err)
+	}
 }
 
 func run() (err error) {
-	// attempt to get the desired CRDs request by the users
-	zap.S().Info("Gathering CustomResourceDefinitions from source.")
-	crdMap, err := crdsFromInput(cmdFlags.crdSource)
+	logger := zap.S()
+
+	if cmdFlags.rancherDevImage != "" && cmdFlags.rancherVersion != "" {
+		return fmt.Errorf("cannot specify both --rancher-dev-image and --rancher-version flags at the same time")
+	}
+
+	desiredGroupKinds, err := parseGroupKind(cmdFlags.resourcesFile, logger)
 	if err != nil {
-		return fmt.Errorf("failed to get CRDs: %w", err)
-	}
-	if len(crdMap) == 0 {
-		return fmt.Errorf("no CRDs found at '%s'", cmdFlags.crdSource)
+		return fmt.Errorf("failed to split group kind: %w", err)
 	}
 
-	// convert the map of crds to a map of GroupKind and a list of crds to install
-	// the boolean value is used later on to identify if the desired GK was found in the path.
-	desiredGroupKinds := make(map[v1.GroupKind]bool, len(crdMap))
-	crdsToInstall := make([]*apiextv1.CustomResourceDefinition, 0, len(crdMap))
-	for _, crd := range crdMap {
-		crdsToInstall = append(crdsToInstall, crd)
-		gk := v1.GroupKind{
-			Group: crd.Spec.Group,
-			Kind:  crd.Spec.Names.Kind,
-		}
-		// add the CRDs GK to the map and initialize it to notFound aka false
-		desiredGroupKinds[gk] = false
-	}
-
-	zap.S().Info("Starting cluster in a docker container.")
-	// Start the cluster for installing the CRDs and getting the swagger doc
+	logger.Info("Initializing Rancher Docker container...")
 	ctx := context.Background()
-	var cluster dockerCluster
-	err = cluster.start(ctx)
+	rancherContainer, err := newRancherDockerContainer(
+		ctx,
+		logger,
+		cmdFlags.rancherDevImage,
+		cmdFlags.rancherVersion,
+		cmdFlags.hostPortHTTP,
+		cmdFlags.hostPortHTTPS,
+	)
 	if err != nil {
-		return fmt.Errorf("failed to start cluster: %w", err)
+		return fmt.Errorf("failed to create rancher docker container: %w", err)
 	}
+
+	logger.Infof("Rancher Docker container %s initialized with image: %s", rancherContainer.containerName, rancherContainer.image)
+
+	err = rancherContainer.start()
+	if err != nil {
+
+		return fmt.Errorf("failed to start rancher container: %w", err)
+	}
+	logger.Info("Rancher container started successfully", "containerID", rancherContainer.containerID)
+
 	defer func() {
-		stopErr := cluster.stop(ctx)
+		logger.Info("Attempting to stop and remove Rancher container...")
+		stopErr := rancherContainer.stop()
 		if err == nil {
 			err = stopErr
 		}
 	}()
 
-	zap.S().Info("Installing CRDs into the cluster.")
-	err = cluster.ensureCRD(ctx, crdsToInstall)
+	logger.Info("Fetching kubeconfig from container...")
+	kubeConfig, err := rancherContainer.getKubeConfigFromContainer()
 	if err != nil {
-		return fmt.Errorf("failed to create CRDs: %w", err)
+		return fmt.Errorf("failed to get kubeconfig from container: %w", err)
 	}
 
-	// give k8s time to add newly installed CRDs to the swagger doc
-	time.Sleep(syncTime)
+	logger.Info("Initializing Kubernetes client and fetching OpenAPI spec...")
 
-	zap.S().Info("Creating new Swagger doc.")
-	// get the swagger doc from the crds
-	swagger, err := cluster.getSwagger()
+	kubeClient, err := newKubeClient(kubeConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create kube client: %w", err)
+	}
+
+	logger.Info("Waiting for desired resources to be available...")
+	err = kubeClient.waitForDesiredResources(ctx, desiredGroupKinds, logger)
+	if err != nil {
+		return fmt.Errorf("failed to wait for desired resources: %w", err)
+	}
+	logger.Info("Desired resources are available")
+
+	logger.Info("Fetching OpenAPI spec from cluster...")
+	swagger, err := kubeClient.getSwagger()
+	if err != nil {
+		return fmt.Errorf("failed to get swagger from cluster: %w", err)
+	}
+	if swagger == nil {
+		return fmt.Errorf("cluster's swagger doc is nil")
+	}
+
+	logger.Info("Getting desired paths from swagger spec...")
+	keepPaths, err := getDesiredPaths(swagger, desiredGroupKinds, logger)
 	if err != nil {
 		return err
 	}
 
-	keepPaths, err := getDesiredPaths(swagger, desiredGroupKinds)
-	if err != nil {
-		return err
-	}
-
-	// remove all paths that are not for the desired CRDs
+	logger.Info("Filtering swagger spec by desired paths...")
 	aggregator.FilterSpecByPaths(swagger, keepPaths)
 
-	err = writeDoc(swagger)
+	logger.Infof("Writing filtered swagger spec to output file '%s'", cmdFlags.outputFile)
+	err = writeDoc(swagger, logger)
 	if err != nil {
 		return fmt.Errorf("failed to write swagger: %w", err)
 	}
-
-	zap.S().Info("Swagger created successfully!")
-	return nil
-}
-
-// getDesiredPaths gets a list of paths to keep by checking if the path specified in the swagger doc references any of the desiredGroupKinds.
-func getDesiredPaths(swagger *spec.Swagger, desiredGroupKinds map[v1.GroupKind]bool) ([]string, error) {
-	if swagger.Paths == nil {
-		return nil, fmt.Errorf("cluster's swagger doc has no paths set")
-	}
-	var keepPaths []string
-	for pathName, pathItem := range swagger.Paths.Paths {
-		gks := groupKindsFromPath(pathItem)
-		for i := range gks {
-			if _, ok := desiredGroupKinds[gks[i]]; ok {
-				keepPaths = append(keepPaths, pathName)
-				desiredGroupKinds[gks[i]] = true // set the GK as found
-				break
-			}
-		}
-	}
-	for gk, foundPath := range desiredGroupKinds {
-		if !foundPath {
-			return nil, fmt.Errorf("failed to find path for GroupKind %s", gk.String())
-		}
-	}
-	return keepPaths, nil
-}
-
-func writeDoc(swagger *spec.Swagger) error {
-	var outData []byte
-	var err error
-	if cmdFlags.prettyPrint {
-		outData, err = json.MarshalIndent(swagger, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to marshal swagger: %w", err)
-		}
-	} else {
-		outData, err = json.Marshal(swagger)
-		if err != nil {
-			return fmt.Errorf("failed to marshal swagger: %w", err)
-		}
-	}
-	if cmdFlags.outputFile == "" {
-		outData = append(outData, '\n')
-		_, err := os.Stdout.Write(outData)
-		if err != nil {
-			return fmt.Errorf("failed to write swagger to stdout: %w", err)
-		}
-		return nil
-	}
-	err = os.WriteFile(cmdFlags.outputFile, outData, 0600)
-	if err != nil {
-		return fmt.Errorf("failed to write swagger doc: %w", err)
-	}
+	logger.Infof("Filtered swagger spec written to '%s'", cmdFlags.outputFile)
+	logger.Info("OpenAPI (Swagger) document generated successfully!")
 	return nil
 }
