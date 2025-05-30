@@ -1,25 +1,48 @@
 # crd-swagger
-Generates a [Swagger](https://swagger.io/docs/) (openapiv2) document for [Custom Resource Definitions](https://kubernetes.io/docs/tasks/extend-kubernetes/custom-resources/custom-resource-definitions/) (CRDs) installed and accessed through kube-apiserver.
-The generated swagger is the same document that you would get from the [openapiv2 endpoint](https://kubernetes.io/docs/concepts/overview/kubernetes-api/#openapi-v2) on a cluster, except the returned swagger document only includes paths and definitions used by the provided CRDs.
 
-The application performs the following steps to accomplish this
-1. Gets the requested CRD files either from a local or remote file location.
-2. Starts a new K3s docker container.
-3. Creates the requested CRDs in the new cluster
-4. Retrieves a swagger 2.0 doc from the cluster.
-5. Removes all paths and references not related to the requested CRDs
-6. Outputs the new filtered swagger.json
+Generates a filtered OpenAPI (Swagger) v2 document for specified Kubernetes resources. This tool interacts with a live, temporary Kubernetes API server (K3s running in Docker via a Rancher image) to achieve this.
+
+The primary use case is to generate precise OpenAPI specifications for Rancher's public APIs.
+
+## How It Works
+
+The application performs the following steps:
+
+1. **Read Target Resources**  
+    Parses a list of target resources from an input file provided via `--resources-file`. The file (local or URL-based) should list resources in the `Kind.Group` format (e.g., `RoleTemplate.management.cattle.io`).
+
+2. **Start Rancher Docker Instance**  
+    Launches a Rancher Docker container using the specified Rancher image version.
+
+3. **Fetch Kubeconfig from Container**  
+    Retrieves the Kubeconfig for the K3s cluster running inside the Rancher container.
+
+4. **Kubernetes API Discovery**  
+    Connects to the K3s cluster and uses the Kubernetes Discovery API to identify available resources.
+
+5. **Fetch Full OpenAPI Spec**  
+    Retrieves the complete OpenAPI v2 document from the K3s API server.
+
+6. **Filter OpenAPI Spec**  
+    Filters the OpenAPI document to retain only the API paths and schema definitions that match the target resources identified via discovery.
+
+7.  **Output:** 
+    Writes the filtered `swagger.json` (OpenAPI v2) document to standard output or a specified output file.
 
 ## Installation
-``` bash
-go install github.com/kevinjoiner/crd-swagger
+
+```bash
+go install github.com/rancher/crd-swagger.git
 ```
 
+
 ### Requirements
-- golang
-- docker
+
+*   Go (for installation and development)
+*   Docker (for running the Rancher)
 
 ## Usage
+
 ```
 Generates a Swagger (openapiv2) document for Custom Resource Definitions (CRDs) installed and accessed through kube-apiserver.
 
@@ -27,20 +50,46 @@ Usage:
   crd-swagger [flags]
 
 Flags:
-      --cluster-port string   port to bind kubeapi-server to on the host machine (default "6443")
-  -f, --files string          location to find input CRD file/files, either a file path or a remote URL
-  -h, --help                  help for crd-swagger
-  -o, --output-file string    location to output the generate swagger doc (if unset stdout is used)
-  -p, --pretty-print          print the output json with formatted with newlines and indentations
-  -r, --recurse               if files is a directory recursively search for all CRDs
-      --silent                do not print any log messages
-  ```
-## Example
-Generate swagger.json from a local Yaml file with readable new lines and indents
+  -h, --help                     help for crd-swagger
+  -p, --http-port string         Host port for Rancher HTTP traffic (e.g., 80, 8080) (default "80")
+  -t, --https-port string        Host port for Rancher HTTPS traffic (e.g. tls port: 443, 8443) (default "443")
+  -o, --output-file string       Output file for the generated OpenAPI (Swagger) document (default: stdout)
+  -j, --pretty-print             Pretty-print the output JSON with indentation
+  -v, --rancher-version string   Rancher Docker image version (e.g., v2.8.3, latest) (default "latest")
+  -f, --resources-file string    Path to a file containing Kind.Group resources (e.g., RoleTemplate.management.cattle.io), one per line
 ```
-crd-swagger -o swagger.json -p -f ./crds.yaml
+
+## Examples
+
+### 1. Basic Usage with a Local Resources File
+
+First, create a file (e.g., `my-apis.txt`) with the `Kind.Group` of the resources you want to document:
+
+**`my-apis.txt`:**
 ```
-Generate rancher-swagger.json from remote gist
+GlobalRole.management.cattle.io
+GlobalRoleBinding.management.cattle.io
+RoleTemplate.management.cattle.io
+ProjectRoleTemplateBinding.management.cattle.io
+ClusterRoleTemplateBinding.management.cattle.io
+Project.management.cattle.io
 ```
-crd-swagger -o rancher-swagger.json -f https://gist.githubusercontent.com/KevinJoiner/088b29a495c3043fd59d8673ef6c7c05/raw
+
+Then, run the tool:
+
+```bash
+crd-swagger -f my-apis.txt -o filtered-swagger.json
 ```
+This will:
+*   Read `my-apis.txt`.
+*   Start a K3s cluster using `rancher/rancher:v2.8.3`.
+*   Generate `filtered-swagger.json` with pretty-printing.
+
+### 2. Using a Remote URL for the Resources File
+
+If your list of `Kind.Group`s is hosted online:
+
+```bash
+crd-swagger -f https://gist.githubusercontent.com/pratikjagrut/46d5e386daed88cfd9ab3b72600e8b8d/raw/340d317eed8a712cbb9a11e6e09f8a9c6e0d0617/resources -o remote-filtered.json
+```
+
