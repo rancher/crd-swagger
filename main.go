@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	"github.com/KevinJoiner/crd-swagger/pkg/cmd"
+	"github.com/rancher/crd-swagger/pkg/cmd"
 )
 
 func main() {
