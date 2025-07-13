@@ -43,6 +43,8 @@ type rancherDockerContainer struct {
 	hostPort      string
 	hostPortHTTPS string
 
+	pullImage bool
+
 	containerID  string
 	dockerClient *docker.Client
 
@@ -50,7 +52,7 @@ type rancherDockerContainer struct {
 	logger *zap.SugaredLogger
 }
 
-func newRancherDockerContainer(ctx context.Context, logger *zap.SugaredLogger, image, version, hostPort, hostPortHTTPS string) (*rancherDockerContainer, error) {
+func newRancherDockerContainer(ctx context.Context, logger *zap.SugaredLogger, image, version, hostPort, hostPortHTTPS string, pullImage bool) (*rancherDockerContainer, error) {
 	dockerClient, err := docker.NewClientWithOpts(docker.FromEnv, docker.WithAPIVersionNegotiation())
 	if err != nil {
 		return nil, err
@@ -89,14 +91,17 @@ func newRancherDockerContainer(ctx context.Context, logger *zap.SugaredLogger, i
 	rancherContainer.hostPort = hostPort
 	rancherContainer.hostPortHTTPS = hostPortHTTPS
 	rancherContainer.containerName = containerName + uuid.New().String()
+	rancherContainer.pullImage = pullImage
 
 	return rancherContainer, nil
 }
 
 func (r *rancherDockerContainer) start() error {
 	// Pull the rancher image
-	if err := r.pullRancherImage(); err != nil {
-		return err
+	if r.pullImage {
+		if err := r.pullRancherImage(); err != nil {
+			return err
+		}
 	}
 
 	// Create a container with the rancher image
