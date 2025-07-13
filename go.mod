@@ -1,4 +1,4 @@
-module github.com/KevinJoiner/crd-swagger
+module github.com/rancher/crd-swagger
 
 go 1.24.0
 

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/KevinJoiner/crd-swagger/pkg/aggregator"
+	"github.com/rancher/crd-swagger/pkg/aggregator"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
