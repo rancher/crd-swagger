@@ -21,6 +21,8 @@ type commandFlags struct {
 	hostPortHTTPS  string
 
 	rancherDevImage string
+
+	pullImage bool
 }
 
 var cmdFlags commandFlags
@@ -67,6 +69,8 @@ func addFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVarP(&cmdFlags.hostPortHTTP, "http-port", "p", defaultHostPort, "Host port for Rancher HTTP traffic (e.g., 80, 8080)")
 	cmd.Flags().StringVarP(&cmdFlags.hostPortHTTPS, "https-port", "t", defaultHostPortHTTPS, "Host port for Rancher HTTPS traffic (e.g. tls port: 443, 8443)")
 
+	cmd.Flags().BoolVarP(&cmdFlags.pullImage, "pull", "", false, "If true, will attempt to pull the image first")
+
 	if err := cmd.MarkFlagRequired("resources-file"); err != nil {
 		panic(err)
 	}
@@ -93,6 +97,7 @@ func run() (err error) {
 		cmdFlags.rancherVersion,
 		cmdFlags.hostPortHTTP,
 		cmdFlags.hostPortHTTPS,
+		cmdFlags.pullImage,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create rancher docker container: %w", err)
